@@ -4,13 +4,14 @@
 #include <error.h>
 #include <colors.h>
 
-const int n_errs = 4; // remove (sizeof err_arr)
 // generate enum automatically
 ErrDescr err_arr[] = {{ERR_OK, "No error"}, 
 
 {ERR_MEM, "Couldn't allocate memory"},
 {ERR_OPEN_FILE, "Couldn't open file"},
 {ERR_FILE, "File error"}};
+
+const int n_errs = (sizeof err_arr) / sizeof(ErrDescr);
 
 void myAssertFn(int expr, const char* str_expr, const char* file, int line, const char* function)
 {

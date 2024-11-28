@@ -4,24 +4,31 @@
 #include <diff.h>
 #include <error.h>
 #include <utils.h>
+#include <parser.h>
 
 #include <stdlib.h>
 
 int main(int argc, const char* argv[])
 {
     Node* root = NULL;
-    handleErr(treeRead(&root));
-    // handleErr(treeWrite(root));
+    handleErr(treeParse(&root));
+    // handleErr(treeRead(&root));
+    handleErr(treeDump(root));
+    return 0;
+
+    handleErr(treeWriteTex(root));
+
+    // Node* root_deriv = NULL;
+    // returnErr(diff(root, &root_deriv));
+    // handleErr(treeDump(root_deriv));
+    // handleErr(treeWriteTex(root_deriv));
+
+    simplify(root);
     handleErr(treeDump(root));
     handleErr(treeWriteTex(root));
 
-    Node* root_deriv = NULL;
-    returnErr(diff(root, &root_deriv));
-    handleErr(treeDump(root_deriv));
-    handleErr(treeWriteTex(root_deriv));
-
     // double y = 0;
-    // evaluate(root, -1, &y);
+    // evaluate(root, 1, &y);
     // printf("evaluates to %lf\n", y);
 
     nodeDtor(root);

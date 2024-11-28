@@ -23,7 +23,9 @@ static int myMax(int a, int b)
 
 ErrEnum fileSize(FILE *file, long *siz);
 ErrEnum callocErr(void **ptr, size_t count, size_t size);
+ErrEnum readFile(const char* file_name, void** array, int* size);
 
+int isZero(double num);
 int strcmpToBracket(const char* lft, const char* rgt);
 
 #endif // UTILS_H

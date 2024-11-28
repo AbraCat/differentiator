@@ -117,6 +117,6 @@ ErrEnum getN(Parser* pars, Node** node)
     }
     if (pars->p == old_p) SYNT_ERR("[0-9]");
 
-    _NUM(node, (double)val, NULL, NULL, NULL);
+    _NUM(node, (double)val, NULL);
     NO_SYNT_ERR;
 }

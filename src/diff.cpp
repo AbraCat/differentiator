@@ -1,10 +1,15 @@
-
+#include <math.h>
 
 #include <diff.h>
 #include <logs.h>
 #include <utils.h>
 
 static const int buffer_size = 300;
+
+static double add(double a, double b) { return a + b; }
+static double sub(double a, double b) { return a - b; }
+static double mul(double a, double b) { return a * b; }
+static double div(double a, double b) { return a / b; }
 
 ErrEnum nodeWriteTex(FILE* fout, Node* node)
 {
@@ -41,13 +46,13 @@ ErrEnum nodeWriteTex(FILE* fout, Node* node)
             }                                               \
         }                                                          \
         for (const char* fmt = tex_fmt; *fmt != '\0'; ++fmt)    \
-        {                                                   \
+        {                                                       \
             if (*fmt == '%')                                    \
-            {                                               \
-                ++fmt;                                      \
+            {                                                   \
+                ++fmt;                                          \
                 if (*fmt == 'l') nodeWriteTex(fout, node->lft);    \
                 else if (*fmt == 'r') nodeWriteTex(fout, node->rgt); \
-                else myAssert(0);                                   \
+                else myAssert("Invalid format specifier" && 0);      \
             }                                                       \
             else fputc(*fmt, fout);                                 \
         }                                                         \
@@ -128,8 +133,13 @@ void evaluate(Node* node, double x, double* ans)
     {                                                       \
         double arg1 = 0, arg2 = 0;                          \
         evaluate(node->lft, x, &arg1);                      \
-        if (n_operands == 2) evaluate(node->rgt, x, &arg2); \
-        *ans = arg1 eval arg2;                                     \
+        if (n_operands == 1) {*ans = 0; "((EvalOneArg)eval)(arg1);";} \
+        else if (n_operands == 2)                           \
+        {                                                   \
+            evaluate(node->rgt, x, &arg2); \
+            *ans = 0; "((EvalTwoArgs)eval)(arg1, arg2);";                        \
+        }                                                   \
+        else myAssert(0);                                   \
         return;                                             \
     }
 
@@ -159,6 +169,35 @@ void evaluate(Node* node, double x, double* ans)
     #undef DIFF_OP
 }
 
+void nodeIsConst(Node* node, int* ans)
+{
+    myAssert(ans != NULL);
+    if (node == NULL)
+    {
+        *ans = 1;
+        return;
+    }
+    int ans_child = 0;
+    nodeIsConst(node->lft, &ans_child);
+    if (!ans_child)
+    {
+        *ans = 0;
+        return;
+    }
+    nodeIsConst(node->rgt, &ans_child);
+    if (!ans_child)
+    {
+        *ans = 0;
+        return;
+    }
+    if (node->type == TYPE_VAR)
+    {
+        *ans = 0;
+        return;
+    }
+    *ans = 1;
+}
+
 ErrEnum diff(Node* node, Node** deriv)
 {
     myAssert(node != NULL && deriv != NULL && *deriv == NULL);
@@ -175,21 +214,16 @@ ErrEnum diff(Node* node, Node** deriv)
     }
     myAssert(node->type == TYPE_OP);
 
-    #define _ADD(node_name, lft, rgt) returnErr(nodeCtor(&node_name, TYPE_OP, {.op_code = OP_ADD}, NULL, lft, rgt))
-    #define _SUB(node_name, lft, rgt) returnErr(nodeCtor(&node_name, TYPE_OP, {.op_code = OP_SUB}, NULL, lft, rgt))
-    #define _MUL(node_name, lft, rgt) returnErr(nodeCtor(&node_name, TYPE_OP, {.op_code = OP_MUL}, NULL, lft, rgt))
-    #define _DIV(node_name, lft, rgt) returnErr(nodeCtor(&node_name, TYPE_OP, {.op_code = OP_DIV}, NULL, lft, rgt))
-
     Node *deriv_lft = NULL, *deriv_rgt = NULL;
     diff(node->lft, &deriv_lft);
     if (node->rgt != NULL) diff(node->rgt, &deriv_rgt);
     switch (node->val.op_code)
     {
         case OP_ADD:
-            _ADD(*deriv, deriv_lft, deriv_rgt);
+            _ADD(deriv, NULL, deriv_lft, deriv_rgt);
             return ERR_OK;
         case OP_SUB:
-            _SUB(*deriv, deriv_lft, deriv_rgt);
+            _SUB(deriv, NULL, deriv_lft, deriv_rgt);
             return ERR_OK;
         case OP_MUL:
         {
@@ -198,14 +232,120 @@ ErrEnum diff(Node* node, Node** deriv)
             returnErr(nodeCopy(node->rgt, &rgt_copy));
 
             Node *gdf = NULL, *fdg = NULL;
-            _MUL(gdf, deriv_lft, rgt_copy);
-            _MUL(fdg, lft_copy, deriv_rgt);
-            _ADD(*deriv, gdf, fdg);
+            _MUL(&gdf, NULL, deriv_lft, rgt_copy);
+            _MUL(&fdg, NULL, lft_copy, deriv_rgt);
+            _ADD(deriv, NULL, gdf, fdg);
             return ERR_OK;
         }
         case OP_DIV:
         {
-            return ERR_OK; // write
+            Node *lft_copy = NULL, *rgt_copy = NULL;
+            returnErr(nodeCopy(node->lft, &lft_copy));
+            returnErr(nodeCopy(node->rgt, &rgt_copy));
+
+            Node *gdf = NULL, *fdg = NULL, *gdf_minus_fdg = NULL;
+            _MUL(&gdf, NULL, deriv_lft, rgt_copy);
+            _MUL(&fdg, NULL, lft_copy, deriv_rgt);
+            _SUB(&gdf_minus_fdg, NULL, gdf, fdg);
+
+            Node *num2 = NULL, *rgt_copy2 = NULL, *g_pow_2 = NULL;
+            _NUM(&num2, 2, NULL);
+            returnErr(nodeCopy(node->rgt, &rgt_copy2));
+            _POW(&g_pow_2, NULL, rgt_copy2, num2);
+            _DIV(deriv, NULL, gdf_minus_fdg, g_pow_2);
+            return ERR_OK;
+        }
+        case OP_POW:
+        {
+            int f_const = 0, g_const = 0;
+            nodeIsConst(node->lft, &f_const);
+            nodeIsConst(node->rgt, &g_const);
+            if (f_const && g_const)
+            {
+                // (c1 ^ c2)' = 0
+                _NUM(deriv, 0, NULL);
+                return ERR_OK;
+            }
+            if (!f_const && g_const)
+            {
+                // (f ^ c)' = c * f ^ {c - 1}
+                double g_val = 0;
+                evaluate(node->rgt, 0, &g_val);
+                Node *c_minus_1 = NULL, *f_copy = NULL, *f_pow_cm1 = NULL, *c = NULL;
+                _NUM(&c_minus_1, g_val - 1, NULL);
+                returnErr(nodeCopy(node->lft, &f_copy));
+                _POW(&f_pow_cm1, NULL, f_copy, c_minus_1);
+                _NUM(&c, g_val, NULL);
+                _MUL(deriv, NULL, c, f_pow_cm1);
+                return ERR_OK;
+            }
+            if (f_const && !g_const)
+            {
+                // (c ^ g)' = lnc * c ^ g
+                double f_val = 0;
+                evaluate(node->lft, 0, &f_val);
+                Node *g_copy, *c, *c_pow_g, *lnc;
+                returnErr(nodeCopy(node->rgt, &g_copy));
+                _NUM(&c, f_val, NULL);
+                _POW(&c_pow_g, NULL, c, g_copy);
+                _NUM(&lnc, log(f_val), NULL);
+                _MUL(deriv, NULL, lnc, c_pow_g);
+                return ERR_OK;
+            }
+            // (f ^ g)' = (exp(g * ln(f)))' = f ^ g * (g' * lnf + g * f' / f)
+            //
+            return ERR_OK;
+        }
+        case OP_EXP:
+        {
+            Node *exp_f = NULL;
+            returnErr(nodeCopy(node, &exp_f));
+            _MUL(deriv, NULL, deriv_lft, exp_f);
+            return ERR_OK;
+        }
+        case OP_LN:
+        {
+            Node *f_copy = NULL;
+            returnErr(nodeCopy(node->lft, &f_copy));
+            _DIV(deriv, NULL, deriv_lft, f_copy);
+            return ERR_OK;
+        }
+        case OP_SIN:
+        {
+            Node *f_copy = NULL, *cos_f = NULL;
+            returnErr(nodeCopy(node->lft, &f_copy));
+            _COS(&cos_f, NULL, f_copy);
+            _MUL(deriv, NULL, cos_f, deriv_lft);
+            return ERR_OK;
+        }
+        case OP_COS:
+        {
+            // unary minus
+            Node *f_copy = NULL, *sin_f = NULL;
+            returnErr(nodeCopy(node->lft, &f_copy));
+            _SIN(&sin_f, NULL, f_copy);
+            _MUL(deriv, NULL, sin_f, deriv_lft);
+            return ERR_OK;
+        }
+        case OP_TAN:
+        {
+            //
+            return ERR_OK;
+        }
+        case OP_ARCSIN:
+        {
+            //
+            return ERR_OK;
+        }
+        case OP_ARCCOS:
+        {
+            //
+            return ERR_OK;
+        }
+        case OP_ARCTAN:
+        {
+            //
+            return ERR_OK;
         }
         default: return ERR_INVAL_OP_CODE;
     }

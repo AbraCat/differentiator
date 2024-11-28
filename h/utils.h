@@ -11,15 +11,8 @@
     FILE* var = fopen(name, mode);         \
     if (var == NULL) return ERR_OPEN_FILE;
 
-static int myMin(int a, int b)
-{
-    return a < b ? a : b;
-}
-
-static int myMax(int a, int b)
-{
-    return a > b ? a : b;
-}
+static int myMin(int a, int b) { return a < b ? a : b; }
+static int myMax(int a, int b) { return a > b ? a : b; }
 
 ErrEnum fileSize(FILE *file, long *siz);
 ErrEnum callocErr(void **ptr, size_t count, size_t size);

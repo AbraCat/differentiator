@@ -9,7 +9,16 @@ const int small_buf_size = 100;
 
 #define _EMPTY(node) returnErr(nodeCtor(node, TYPE_NUM, {.num = 0}, NULL, NULL, NULL));
 #define _NODE(node, type, val, parent, lft, rgt) returnErr(nodeCtor(node, type, val, parent, lft, rgt))
-#define _NUM(node, val, parent, lft, rgt) returnErr(nodeCtor(node, TYPE_NUM, {.num = val}, parent, lft, rgt))
+#define _NUM(node, val, parent) returnErr(nodeCtor(node, TYPE_NUM, {.num = val}, parent, NULL, NULL))
+
+#define _ADD(node, parent, lft, rgt) returnErr(nodeCtor(node, TYPE_OP, {.op_code = OP_ADD}, parent, lft, rgt))
+#define _SUB(node, parent, lft, rgt) returnErr(nodeCtor(node, TYPE_OP, {.op_code = OP_SUB}, parent, lft, rgt))
+#define _MUL(node, parent, lft, rgt) returnErr(nodeCtor(node, TYPE_OP, {.op_code = OP_MUL}, parent, lft, rgt))
+#define _DIV(node, parent, lft, rgt) returnErr(nodeCtor(node, TYPE_OP, {.op_code = OP_DIV}, parent, lft, rgt))
+#define _POW(node, parent, lft, rgt) returnErr(nodeCtor(node, TYPE_OP, {.op_code = OP_POW}, parent, lft, rgt))
+
+#define _SIN(node, parent, lft) returnErr(nodeCtor(node, TYPE_OP, {.op_code = OP_SIN}, parent, lft, NULL))
+#define _COS(node, parent, lft) returnErr(nodeCtor(node, TYPE_OP, {.op_code = OP_COS}, parent, lft, NULL))
 
 enum NodeType
 {

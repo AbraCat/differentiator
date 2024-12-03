@@ -7,6 +7,10 @@
 
 const int small_buf_size = 100;
 
+// can you codegen these defines?
+
+#define _COPY(src, dest) returnErr(nodeCopy(src, dest));
+
 #define _EMPTY(node) returnErr(nodeCtor(node, TYPE_NUM, {.num = 0}, NULL, NULL, NULL));
 #define _NODE(node, type, val, parent, lft, rgt) returnErr(nodeCtor(node, type, val, parent, lft, rgt))
 #define _NUM(node, val, parent) returnErr(nodeCtor(node, TYPE_NUM, {.num = val}, parent, NULL, NULL))
@@ -17,6 +21,8 @@ const int small_buf_size = 100;
 #define _DIV(node, parent, lft, rgt) returnErr(nodeCtor(node, TYPE_OP, {.op_code = OP_DIV}, parent, lft, rgt))
 #define _POW(node, parent, lft, rgt) returnErr(nodeCtor(node, TYPE_OP, {.op_code = OP_POW}, parent, lft, rgt))
 
+#define _EXP(node, parent, lft) returnErr(nodeCtor(node, TYPE_OP, {.op_code = OP_EXP}, parent, lft, NULL))
+#define _LN(node, parent, lft) returnErr(nodeCtor(node, TYPE_OP, {.op_code = OP_LN }, parent, lft, NULL))
 #define _SIN(node, parent, lft) returnErr(nodeCtor(node, TYPE_OP, {.op_code = OP_SIN}, parent, lft, NULL))
 #define _COS(node, parent, lft) returnErr(nodeCtor(node, TYPE_OP, {.op_code = OP_COS}, parent, lft, NULL))
 

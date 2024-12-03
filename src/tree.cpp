@@ -6,17 +6,18 @@
 #include <logs.h>
 
 int dump_cnt = 0;
-static const int n_ops = 4, buffer_size = 300;
+static const int buffer_size = 300;
 static const char expr_brackets_path[] = "./txt/expr-brackets.txt";
 
 // #define OP_STR_CASE(op, str) {OP_ ## op, str, sizeof str - 1}
 #define DIFF_OP(name, n_operands, eval, priority, text, tex_fmt) {OP_ ## name, text, sizeof text - 1, priority},
-static OpInfo op_strs[] = {
+static OpInfo op_info_arr[] = {
     #include <operations.h>
     {OP_INVAL, "INVALID_OP", sizeof "INVALID_OP" - 1, 0}
 };
 #undef DIFF_OP
 // #undef OP_STR_CASE
+static const int n_ops = sizeof op_info_arr / sizeof(OpInfo);
 
 ErrEnum nodeCtor(Node** node, NodeType type, NodeVal val, Node* parent, Node* lft, Node* rgt)
 {
@@ -94,9 +95,9 @@ ErrEnum getOpByCode(OpEnum op_code, OpInfo** ans)
 
     for (int ind = 0; ind < n_ops; ++ind)
     {
-        if (op_strs[ind].op_code == op_code)
+        if (op_info_arr[ind].op_code == op_code)
         {
-            *ans = op_strs + ind;
+            *ans = op_info_arr + ind;
             return ERR_OK;
         }
     }
@@ -110,9 +111,9 @@ ErrEnum getOpByStr(const char* op_str, OpInfo** ans)
 
     for (int ind = 0; ind < n_ops; ++ind)
     {
-        if (strcmpToBracket(op_str, op_strs[ind].op_str) == 0)
+        if (strcmpToBracket(op_str, op_info_arr[ind].op_str) == 0)
         {
-            *ans = op_strs + ind;
+            *ans = op_info_arr + ind;
             return ERR_OK;
         }
     }
@@ -249,29 +250,34 @@ void printNodeDot(FILE* fout, Node* node)
             fputs(#op, fout); \
             break
 
-    // node123 [shape = Mrecord, label = "{type | val | { lft | rgt }}"]
+    #define DIFF_OP(name, n_operands, value, priority, text, tex_fmt) \
+    case OP_ ## name:                                                 \
+        fputs(text, fout);                                            \
+        break;
+
+    // node123 [shape = Mrecord, label = "{type | val | parent | { lft | rgt }}"]
     fprintf(fout, "node%p [shape = Mrecord , label = \"{node %p|", node, node);
     switch (node->type)
     {
-        TYPE_CASE(OP, 
+        case TYPE_OP:
+            fputs("OP | ", fout);
             switch(node->val.op_code)
             {
-                OP_CASE(ADD);
-                OP_CASE(SUB);
-                OP_CASE(MUL);
-                OP_CASE(DIV);
-                default: fprintf(fout, "BAD_OP");
+                #include <operations.h>
+                default: fprintf(fout, "BAD_OP (%d)", (int)(node->val.op_code));
             }
-        );
-
-        TYPE_CASE(VAR, fputc('x', fout););
-        TYPE_CASE(NUM, fprintf(fout, "%lf", node->val.num););
-
+            break;
+        case TYPE_VAR:
+            fputs("VAR | x", fout);
+            break;
+        case TYPE_NUM:
+            fprintf(fout, "NUM | %lf", node->val.num);
+            break;
         default:
             fprintf(fout, "BAD_TYPE (%d)", (int)(node->type));
             break;
     }
-    fprintf(fout, "|<parent>parent %p|{<lft>lft %p|<rgt>rgt %p}}\"]\n", node->parent, node->lft, node->rgt);
+    fprintf(fout, " | <parent>parent %p | {<lft>lft %p | <rgt>rgt %p}}\"]\n", node->parent, node->lft, node->rgt);
 
     if (node->lft != NULL)
     {

@@ -8,6 +8,8 @@ typedef double (*EvalTwoArgs)(double, double);
 
 ErrEnum nodeWriteTex(FILE* fout, Node* node);
 ErrEnum treeWriteTex(Node* node);
+ErrEnum treeWriteTex(FILE* fout, Node* node);
+ErrEnum makeArticle(Node* node);
 
 void evaluate(Node* node, double x, double* ans);
 ErrEnum diff(Node* node, Node** deriv);

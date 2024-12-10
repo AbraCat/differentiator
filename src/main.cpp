@@ -8,27 +8,15 @@
 
 #include <stdlib.h>
 
+static const char expr_txt_path[] = "./txt/expr.txt";
+static const char article_path[] = "./log/tex/article.tex";
+
 int main(int argc, const char* argv[])
 {
     Node* root = NULL;
-    handleErr(treeRead(&root));
-    // handleErr(treeDump(root));
-    handleErr(treeWriteTex(root));
+    handleErr(treeParse(&root, expr_txt_path));
 
-    Node* root_deriv = NULL;
-    returnErr(diff(root, &root_deriv));
-
-    simplify(root_deriv);
-    handleErr(treeDump(root_deriv));
-    handleErr(treeWriteTex(root_deriv));
-
-    // simplify(root);
-    // handleErr(treeDump(root));
-    // handleErr(treeWriteTex(root));
-
-    // double y = 0;
-    // evaluate(root, 1, &y);
-    // printf("evaluates to %lf\n", y);
+    handleErr(makeArticle(root, article_path));
 
     nodeDtor(root);
     return 0;

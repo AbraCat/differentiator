@@ -7,17 +7,14 @@
 
 int dump_cnt = 0;
 static const int buffer_size = 300;
-static const char expr_brackets_path[] = "./txt/expr-brackets.txt";
 
-// #define OP_STR_CASE(op, str) {OP_ ## op, str, sizeof str - 1}
-#define DIFF_OP(name, n_operands, eval, priority, text, tex_fmt) {OP_ ## name, text, sizeof text - 1, priority},
+#define DIFF_OP(name, n_operands, eval, priority, text, tex_fmt) {OP_ ## name, text, tex_fmt, sizeof text - 1, priority},
 static OpInfo op_info_arr[] = {
     #include <operations.h>
-    {OP_INVAL, "INVALID_OP", sizeof "INVALID_OP" - 1, 0}
 };
 #undef DIFF_OP
-// #undef OP_STR_CASE
-static const int n_ops = sizeof op_info_arr / sizeof(OpInfo);
+
+extern const int n_ops = sizeof op_info_arr / sizeof(OpInfo);
 
 ErrEnum nodeCtor(Node** node, NodeType type, NodeVal val, Node* parent, Node* lft, Node* rgt)
 {
@@ -34,19 +31,18 @@ ErrEnum nodeCtor(Node** node, NodeType type, NodeVal val, Node* parent, Node* lf
     (*node)->lft = lft;
     (*node)->rgt = rgt;
 
-    (*node)->n_nodes = 1;
     if (lft != NULL)
     {
         if (lft->parent != NULL && lft->parent != *node) return ERR_PARENT_DISCARDED;
         lft->parent = *node;
-        (*node)->n_nodes += lft->n_nodes;
     }
     if (rgt != NULL)
     {
         if (rgt->parent != NULL && rgt->parent != *node) return ERR_PARENT_DISCARDED;
         rgt->parent = *node;
-        (*node)->n_nodes += rgt->n_nodes;
     }
+
+    (*node)->visited = 0;
 
     return ERR_OK;
 }
@@ -77,15 +73,17 @@ void nNodes(Node* node, int* ans)
 ErrEnum nodeVerify(Node* node)
 {
     if (node == NULL) return ERR_OK;
+    
+    if (node->visited == 1) return ERR_TREE_CYCLE;
+    node->visited = 1;
+
     if (node->lft != NULL && node->lft->parent != node) return ERR_INVAL_CONNECT;
     if (node->rgt != NULL && node->rgt->parent != node) return ERR_INVAL_CONNECT;
 
-    int n_nodes = 0;
-    nNodes(node, &n_nodes);
-    if (node->n_nodes != n_nodes) return ERR_INVAL_NNODES;
+    returnErr(nodeVerify(node->lft));
+    returnErr(nodeVerify(node->lft));
 
-    returnErr(nodeVerify(node->lft));
-    returnErr(nodeVerify(node->lft));
+    node->visited = 0;
     return ERR_OK;
 }
 
@@ -93,16 +91,14 @@ ErrEnum getOpByCode(OpEnum op_code, OpInfo** ans)
 {
     myAssert(ans != NULL);
 
-    for (int ind = 0; ind < n_ops; ++ind)
+    int ind = (int)op_code;
+    if (ind < 0 || ind >= n_ops)
     {
-        if (op_info_arr[ind].op_code == op_code)
-        {
-            *ans = op_info_arr + ind;
-            return ERR_OK;
-        }
+         *ans = NULL;
+        return ERR_INVAL_OP_CODE;
     }
-    *ans = NULL;
-    return ERR_INVAL_OP_CODE;
+    *ans = op_info_arr + ind;
+    return ERR_OK;
 }
 
 ErrEnum getOpByStr(const char* op_str, OpInfo** ans)
@@ -123,12 +119,6 @@ ErrEnum getOpByStr(const char* op_str, OpInfo** ans)
 
 void nodeWrite(FILE* fout, Node* node)
 {
-    #define OP_CASE(op)       \
-        case OP_ ## op:       \
-            fputs(#op, fout); \
-            break
-
-
     if (node == NULL) return;
     fputc('(', fout);
     nodeWrite(fout, node->lft);
@@ -136,7 +126,7 @@ void nodeWrite(FILE* fout, Node* node)
     switch (node->type)
     {
         case TYPE_NUM:
-            fprintf(fout, "%lf", node->val.num);
+            printDouble(fout, node->val.num);
             break;
         case TYPE_VAR:
             fputc('x', fout);
@@ -154,11 +144,9 @@ void nodeWrite(FILE* fout, Node* node)
 
     nodeWrite(fout, node->rgt);
     fputc(')', fout);
-
-    #undef OP_CASE
 }
 
-ErrEnum treeWrite(Node* node)
+ErrEnum treeWrite(Node* node, const char* expr_brackets_path)
 {
     FILE* fout = fopen(expr_brackets_path, "w");
     if (fout == NULL) return ERR_OPEN_FILE;
@@ -169,7 +157,7 @@ ErrEnum treeWrite(Node* node)
     return ERR_OK;
 }
 
-ErrEnum nodeRead(char* buf, int* buf_pos, Node* node, int* n_nodes, int buf_size)
+ErrEnum nodeRead(char* buf, int* buf_pos, Node* node, int buf_size)
 {
     #define cur_buf (buf + *buf_pos)
 
@@ -178,9 +166,6 @@ ErrEnum nodeRead(char* buf, int* buf_pos, Node* node, int* n_nodes, int buf_size
         if (*buf_pos >= buf_size) \
             return ERR_BUF_BOUND;
 
-    // allows ((1)2(3))
-
-    ++(*n_nodes);
     int pos_incr = 0;
 
     if (cur_buf[0] != '(') return ERR_TREE_FMT;
@@ -188,7 +173,7 @@ ErrEnum nodeRead(char* buf, int* buf_pos, Node* node, int* n_nodes, int buf_size
     if (cur_buf[0] == '(')
     {
         returnErr(nodeCtor(&node->lft, TYPE_NUM, {.num = 0}, node, NULL, NULL));
-        returnErr(nodeRead(buf, buf_pos, node->lft, n_nodes, buf_size));
+        returnErr(nodeRead(buf, buf_pos, node->lft, buf_size));
     }
     if (sscanf(cur_buf, "%lf%n", &node->val.num, &pos_incr) == 1)
     {
@@ -203,17 +188,17 @@ ErrEnum nodeRead(char* buf, int* buf_pos, Node* node, int* n_nodes, int buf_size
     }
     else
     {
-        OpInfo *op_descr = NULL;
-        returnErr(getOpByStr(cur_buf, &op_descr));
+        OpInfo* op_info = 0;
+        returnErr(getOpByStr(cur_buf, &op_info));
         node->type = TYPE_OP;
-        node->val.op_code = op_descr->op_code;
-        INCR_BUF_POS(op_descr->op_str_len);
+        node->val.op_code = op_info->op_code;
+        INCR_BUF_POS(op_info->op_str_len);
     }
 
     if (cur_buf[0] == '(')
     {
         returnErr(nodeCtor(&node->rgt, TYPE_NUM, {.num = 0}, node, NULL, NULL));
-        returnErr(nodeRead(buf, buf_pos, node->rgt, n_nodes, buf_size));
+        returnErr(nodeRead(buf, buf_pos, node->rgt, buf_size));
     }
     if (*cur_buf != ')') return ERR_TREE_FMT;
     INCR_BUF_POS(1);
@@ -221,7 +206,7 @@ ErrEnum nodeRead(char* buf, int* buf_pos, Node* node, int* n_nodes, int buf_size
     return ERR_OK;
 }
 
-ErrEnum treeRead(Node** tree)
+ErrEnum treeRead(Node** tree, const char* expr_brackets_path)
 {
     myAssert(tree != NULL && *tree == NULL);
 
@@ -230,43 +215,26 @@ ErrEnum treeRead(Node** tree)
     returnErr(readFile(expr_brackets_path, (void**)(&buf), &buf_size));
 
     returnErr(nodeCtor(tree, TYPE_NUM, {.num = 0}, NULL, NULL, NULL));
-    (*tree)->n_nodes = 0;
-    returnErr(nodeRead(buf, &buf_pos, *tree, &((*tree)->n_nodes), buf_size));
+    returnErr(nodeRead(buf, &buf_pos, *tree, buf_size));
 
     free(buf);
     return ERR_OK;
 }
 
-void printNodeDot(FILE* fout, Node* node)
+ErrEnum printNodeDot(FILE* fout, Node* node)
 {
-    #define TYPE_CASE(type, ...)    \
-        case TYPE_ ## type:         \
-            fputs(#type "|", fout); \
-            __VA_ARGS__             \
-            break;
-
-    #define OP_CASE(op)       \
-        case OP_ ## op:       \
-            fputs(#op, fout); \
-            break
-
-    #define DIFF_OP(name, n_operands, value, priority, text, tex_fmt) \
-    case OP_ ## name:                                                 \
-        fputs(text, fout);                                            \
-        break;
-
     // node123 [shape = Mrecord, label = "{type | val | parent | { lft | rgt }}"]
+    
     fprintf(fout, "node%p [shape = Mrecord , label = \"{node %p|", node, node);
     switch (node->type)
     {
         case TYPE_OP:
-            fputs("OP | ", fout);
-            switch(node->val.op_code)
-            {
-                #include <operations.h>
-                default: fprintf(fout, "BAD_OP (%d)", (int)(node->val.op_code));
-            }
+        {
+            OpInfo* op_info = NULL;
+            returnErr(getOpByCode(node->val.op_code, &op_info));
+            fprintf(fout, "OP | %s", op_info->op_str);
             break;
+        }
         case TYPE_VAR:
             fputs("VAR | x", fout);
             break;
@@ -290,8 +258,7 @@ void printNodeDot(FILE* fout, Node* node)
         fprintf(fout, "node%p:<rgt> -> node%p[color = green]\n", node, node->rgt);
     }
 
-    #undef TYPE_CASE
-    #undef OP_CASE
+    return ERR_OK;
 }
 
 ErrEnum treeMakeGraph(Node* tree)
@@ -306,7 +273,7 @@ ErrEnum treeMakeGraph(Node* tree)
 
     fputs("digraph Tree\n{\nrankdir = TB\n", fout);
     if (tree == NULL) fputs("NULL [shape = Mrecord]\n", fout);
-    else printNodeDot(fout, tree);
+    else returnErr(printNodeDot(fout, tree));
     fputs("}\n", fout);
 
     fclose(fout);

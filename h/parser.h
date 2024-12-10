@@ -17,13 +17,22 @@ struct Parser
     SyntaxErr synt_err;
 };
 
-ErrEnum treeParse(Node** node);
-void syntaxErr(SyntaxErr* synt_err);
+/*
+grammar
 
-ErrEnum getG(Parser* pars, Node** node);
-ErrEnum getE(Parser* pars, Node** node);
-ErrEnum getT(Parser* pars, Node** node);
-ErrEnum getP(Parser* pars, Node** node);
-ErrEnum getN(Parser* pars, Node** node);
+G = E0$
+E0 = E1{[+-]E1}*
+E1 = E2{[*(slash)]E2}*
+E2 = P{^P}*
+P = (E0)|N|V|F
+F = NAME(E0)
+N = {-}[0-9]+{.[0-9]+}
+V = x
+NAME = [exp, ln, sin, cos, tan, arcsin, arccos, arctan]
+*/
+
+// TODO: static functions
+
+ErrEnum treeParse(Node** node, const char *expr_txt_path);
 
 #endif // PARSER_H

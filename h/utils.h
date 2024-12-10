@@ -21,4 +21,6 @@ ErrEnum readFile(const char* file_name, void** array, int* size);
 int isZero(double num);
 int strcmpToBracket(const char* lft, const char* rgt);
 
+void printDouble(FILE* fout, double num);
+
 #endif // UTILS_H

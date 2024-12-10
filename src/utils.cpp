@@ -3,6 +3,8 @@
 
 #include <utils.h>
 
+static long long intPow(long long base, int power);
+
 ErrEnum callocErr(void **ptr, size_t count, size_t size)
 {
     void* ptr1 = calloc(count, size);
@@ -47,7 +49,7 @@ ErrEnum readFile(const char* file_name, void** array, int* size)
 
 int isZero(double num)
 {
-    const double EPS = 1e-1;
+    const double EPS = 1e-6;
     return fabs(num) < EPS;
 }
 
@@ -60,4 +62,27 @@ int strcmpToBracket(const char* lft, const char* rgt)
     }
     return (*lft == '(' || *lft == ')' ? '\0' : *lft) - 
            (*rgt == '(' || *rgt == ')' ? '\0' : *rgt);
+}
+
+void printDouble(FILE* fout, double num)
+{
+    myAssert(fout != NULL);
+
+    const int max_prec = 3;
+    if (num < 0)
+    {
+        num *= -1;
+        fputc('-', fout);
+    }
+    fprintf(fout, "%d", (long long)num);
+    num -= (long long)num;
+    long long ten_pow = 1;
+    double num10pow = num;
+    if (!isZero(num - (long long)num)) fputc('.', fout);
+    for (int digit = 1; digit <= max_prec && !isZero(num10pow - (long long)num10pow); ++digit)
+    {
+        ten_pow *= 10;
+        num10pow = num * ten_pow;
+        fprintf(fout, "%d", (long long)num10pow % 10);
+    }
 }

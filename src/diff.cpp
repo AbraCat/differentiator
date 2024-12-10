@@ -3,25 +3,18 @@
 #include <diff.h>
 #include <logs.h>
 #include <utils.h>
+#include <tree-dsl.h>
 
 static const int buffer_size = 300;
 
-static double add(double a, double b) { return a + b; }
-static double sub(double a, double b) { return a - b; }
-static double mul(double a, double b) { return a * b; }
-static double div(double a, double b) { return a / b; }
-
-ErrEnum nodeWriteTex(FILE* fout, Node* node)
+ErrEnum nodeWriteTex(FILE* fout, Node* node, int parent_priority)
 {
-    #define OP_CASE(op)       \
-        case OP_ ## op:       \
-            fputs(#op, fout); \
-            break
-
     if (node == NULL) return ERR_OK;
     if (node->type == TYPE_NUM)
     {
-        fprintf(fout, "%lf", node->val.num);
+        if (parent_priority != 0 && node->val.num < 0) fputc('(', fout);
+        printDouble(fout, node->val.num);
+        if (parent_priority != 0 && node->val.num < 0) fputc(')', fout);
         return ERR_OK;
     }
     if (node->type == TYPE_VAR)
@@ -31,110 +24,69 @@ ErrEnum nodeWriteTex(FILE* fout, Node* node)
     }
     myAssert(node->type == TYPE_OP);
 
-    #define DIFF_OP(name, n_operands, eval, prior, text, tex_fmt) \
-    if (node->val.op_code == OP_ ## name)                 \
-    {                                                     \
-        int priority_brackets = 0;                          \
-        if (node->parent != NULL && prior != 0)          \
-        {                                               \
-            OpInfo* parent_op = NULL;                   \
-            returnErr(getOpByCode(node->parent->val.op_code, &parent_op)) \
-            if (parent_op->priority > prior)                     \
-            {                                           \
-                priority_brackets = 1; \
-                fputc('(', fout);                       \
-            }                                               \
-        }                                                          \
-        for (const char* fmt = tex_fmt; *fmt != '\0'; ++fmt)    \
-        {                                                       \
-            if (*fmt == '%')                                    \
-            {                                                   \
-                ++fmt;                                          \
-                if (*fmt == 'l') nodeWriteTex(fout, node->lft);    \
-                else if (*fmt == 'r') nodeWriteTex(fout, node->rgt); \
-                else myAssert("Invalid format specifier" && 0);      \
-            }                                                       \
-            else fputc(*fmt, fout);                                 \
-        }                                                         \
-        if (priority_brackets) fputc(')', fout);                    \
-        return ERR_OK;                                                     \
+    OpInfo* op_info = NULL;
+    returnErr(getOpByCode(node->val.op_code, &op_info));
+
+    int priority_brackets = node->val.op_code == OP_DIV && node->parent != NULL &&
+        node->parent->val.op_code == OP_POW && node == node->parent->lft ||
+        op_info->priority != 0 && parent_priority > op_info->priority;
+    if (priority_brackets) fputc('(', fout);
+
+    for (const char* fmt = op_info->tex_fmt; *fmt != '\0'; ++fmt)    
+    {
+        if (*fmt == '%')
+        {
+            ++fmt;
+            if (*fmt == 'l')
+            {
+                if (node->val.op_code == OP_POW) nodeWriteTex(fout, node->lft, 4);
+                else nodeWriteTex(fout, node->lft, op_info->priority);
+            }
+            else if (*fmt == 'r')
+            {
+                if (node->val.op_code == OP_POW) nodeWriteTex(fout, node->rgt, 0);
+                else nodeWriteTex(fout, node->rgt, op_info->priority);
+            }
+            else myAssert("Invalid format specifier" && 0);
+        }
+        else fputc(*fmt, fout);
     }
 
-    #include <operations.h>
-    #undef DIFF_OP
-    
-    // if (node->val.op_code == OP_DIV)
-    // {
-    //     fputs("\\frac{", fout);
-    //     nodeWriteTex(fout, node->lft);
-    //     fputs("}{", fout);
-    //     nodeWriteTex(fout, node->rgt);
-    //     fputc('}', fout);
-    //     return;
-    // }
-
-    // if (node->val.op_code == OP_ADD || node->val.op_code == OP_SUB || node->val.op_code == OP_MUL)
-    // {
-    //     OpInfo* op_descr = NULL;
-    //     getOpByCode(node->val.op_code, &op_descr);
-    //     myAssert(op_descr != NULL);
-
-    //     int priority_brackets = 0;
-    //     if ((node->val.op_code == OP_ADD || node->val.op_code == OP_SUB) && 
-    //     node->parent != NULL && node->parent->val.op_code == OP_MUL)
-    //         priority_brackets = 1;
-
-    //     if (priority_brackets) fputc('(', fout);
-    //     nodeWriteTex(fout, node->lft);
-    //     fputs(op_descr->op_str, fout);
-    //     nodeWriteTex(fout, node->rgt);
-    //     if (priority_brackets) fputc(')', fout);
-    //     return;
-    // }
-
-    myAssert("nodeWriteTex(): invalid node" && 0);
-    return ERR_OK;
-    #undef OP_CASE
-}
-
-ErrEnum treeWriteTex(Node* node)
-{
-    char tex_path[buffer_size] = "";
-    sprintf(tex_path, "%s/tex/expr.tex", log_path);
-    FILE* fout = fopen(tex_path, "a");
-    if (fout == NULL) return ERR_OPEN_FILE;
-
-    fputs("\\[", fout);
-    returnErr(nodeWriteTex(fout, node));
-    fputs("\\]\n", fout);
-
-    fclose(fout);
+    if (priority_brackets) fputc(')', fout);
     return ERR_OK;
 }
 
 ErrEnum treeWriteTex(FILE* fout, Node* node)
 {
+    myAssert(fout != NULL);
+
     fputs("\\[", fout);
-    returnErr(nodeWriteTex(fout, node));
+    returnErr(nodeWriteTex(fout, node, 0));
     fputs("\\]\n", fout);
 
     return ERR_OK;
 }
 
-ErrEnum makeArticle(Node* node)
+ErrEnum makeArticle(Node* node, const char* fout_path)
 {
-    char article_path[buffer_size] = "";
-    sprintf(article_path, "%s/tex/article.tex", log_path);
-    FILE* fout = fopen(article_path, "w");
+    myAssert(fout_path != NULL);
+
+    FILE* fout = fopen(fout_path, "w");
     if (fout == NULL) return ERR_OPEN_FILE;
 
-    fputs("\\begin{document}\nИсходное выражение:\n", fout);
-    treeWriteTex(node);
+    fputs("\\documentclass{article}\n\\usepackage[english]{babel}\n\n"
+    "\\begin{document}\nFunction:\n", fout);
+    treeWriteTex(fout, node);
+
+    // simplify(node);
+    // fputs("Simplified function:\n", fout);
+    // treeWriteTex(fout, node);
+
     Node* deriv = NULL;
-    // change diff() so it writes node to tex after call and before return ?
     returnErr(diff(node, &deriv));
-    fputs("Ответ:\n", fout);
-    treeWriteTex(deriv);
+    simplify(deriv);
+    fputs("Derivative:\n", fout);
+    treeWriteTex(fout, deriv);
     fputs("\\end{document}\n", fout);
 
     fclose(fout);
@@ -158,18 +110,13 @@ void evaluate(Node* node, double x, double* ans)
     myAssert(node->type == TYPE_OP);
 
     #define DIFF_OP(name, n_operands, eval, priority, text, tex_fmt) \
-    case OP_ ## name:                                       \
-    {                                                       \
-        double arg1 = 0, arg2 = 0;                          \
-        evaluate(node->lft, x, &arg1);                      \
-        if (n_operands == 1) {*ans = 0; "((EvalOneArg)eval)(arg1);";} \
-        else if (n_operands == 2)                           \
-        {                                                   \
-            evaluate(node->rgt, x, &arg2); \
-            *ans = 0; "((EvalTwoArgs)eval)(arg1, arg2);";                        \
-        }                                                   \
-        else myAssert(0);                                   \
-        return;                                             \
+    case OP_ ## name:                                                \
+    {                                                                \
+        double arg1 = 0, arg2 = 0;                                   \
+        evaluate(node->lft, x, &arg1);                               \
+        if (n_operands == 2) evaluate(node->rgt, x, &arg2);          \
+        *ans = eval;                                                 \
+        return;                                                      \
     }
 
     switch (node->val.op_code)
@@ -177,23 +124,7 @@ void evaluate(Node* node, double x, double* ans)
         #include <operations.h>
         default: myAssert(0);
     }
-    
-    // #define OP_OPERATOR_CASE(op, operator)  \
-    //     if (node->val.op_code == OP_ ## op) \
-    //     {                                   \
-    //         double y1 = 0, y2 = 0;          \
-    //         evaluate(node->lft, x, &y1);    \
-    //         evaluate(node->rgt, x, &y2);    \
-    //         *ans = y1 operator y2;          \
-    //         return;                         \
-    //     }
 
-    // OP_OPERATOR_CASE(ADD, +);
-    // OP_OPERATOR_CASE(SUB, -);
-    // OP_OPERATOR_CASE(MUL, *);
-    // OP_OPERATOR_CASE(DIV, /);
-
-    // #undef OP_OPERATOR_CASE
     return;
     #undef DIFF_OP
 }
@@ -227,6 +158,22 @@ void nodeIsConst(Node* node, int* ans)
     *ans = 1;
 }
 
+ErrEnum diffWrite(FILE* fout, Node* node, Node** deriv)
+{
+    if (fout != NULL)
+    {
+        fprintf(fout, "Дифференцируя\n");
+        returnErr(treeWriteTex(fout, node));
+    }
+    returnErr(diff(node, deriv));
+    if (fout != NULL)
+    {
+        fprintf(fout, "Получаем:\n");
+        returnErr(treeWriteTex(fout, *deriv));
+    }
+    return ERR_OK;
+}
+
 ErrEnum diff(Node* node, Node** deriv)
 {
     myAssert(node != NULL && deriv != NULL && *deriv == NULL);
@@ -249,39 +196,19 @@ ErrEnum diff(Node* node, Node** deriv)
     switch (node->val.op_code)
     {
         case OP_ADD:
-            _ADD(deriv, NULL, deriv_lft, deriv_rgt);
+            *deriv = _ADD(deriv_lft, deriv_rgt);
             return ERR_OK;
         case OP_SUB:
-            _SUB(deriv, NULL, deriv_lft, deriv_rgt);
+            *deriv = _SUB(deriv_lft, deriv_rgt);
             return ERR_OK;
         case OP_MUL:
         {
-            Node *lft_copy = NULL, *rgt_copy = NULL;
-            returnErr(nodeCopy(node->lft, &lft_copy)); // DSL for copy?
-            returnErr(nodeCopy(node->rgt, &rgt_copy));
-
-            Node *gdf = NULL, *fdg = NULL;
-            _MUL(&gdf, NULL, deriv_lft, rgt_copy);
-            _MUL(&fdg, NULL, lft_copy, deriv_rgt);
-            _ADD(deriv, NULL, gdf, fdg);
+            *deriv = _ADD(_MUL(deriv_lft, _COPY(node->rgt)), _MUL(_COPY(node->lft), deriv_rgt));
             return ERR_OK;
         }
         case OP_DIV:
         {
-            Node *lft_copy = NULL, *rgt_copy = NULL;
-            returnErr(nodeCopy(node->lft, &lft_copy));
-            returnErr(nodeCopy(node->rgt, &rgt_copy));
-
-            Node *gdf = NULL, *fdg = NULL, *gdf_minus_fdg = NULL;
-            _MUL(&gdf, NULL, deriv_lft, rgt_copy);
-            _MUL(&fdg, NULL, lft_copy, deriv_rgt);
-            _SUB(&gdf_minus_fdg, NULL, gdf, fdg);
-
-            Node *num2 = NULL, *rgt_copy2 = NULL, *g_pow_2 = NULL;
-            _NUM(&num2, 2, NULL);
-            returnErr(nodeCopy(node->rgt, &rgt_copy2));
-            _POW(&g_pow_2, NULL, rgt_copy2, num2);
-            _DIV(deriv, NULL, gdf_minus_fdg, g_pow_2);
+            *deriv = _DIV(_SUB(_MUL(deriv_lft, _COPY(node->rgt)), _MUL(_COPY(node->lft), deriv_rgt)), _POW(_COPY(node->rgt), _NUM(2)));
             return ERR_OK;
         }
         case OP_POW:
@@ -292,178 +219,111 @@ ErrEnum diff(Node* node, Node** deriv)
             if (f_const && g_const)
             {
                 // (c1 ^ c2)' = 0
-                _NUM(deriv, 0, NULL);
+                *deriv = _NUM(0);
                 return ERR_OK;
             }
             if (!f_const && g_const)
             {
-                // (f ^ c)' = c * f ^ {c - 1}
+                // (f ^ c)' = f' * c * f ^ {c - 1}
                 double g_val = 0;
                 evaluate(node->rgt, 0, &g_val);
-                Node *c_minus_1 = NULL, *f_copy = NULL, *f_pow_cm1 = NULL, *c = NULL;
-                _NUM(&c_minus_1, g_val - 1, NULL);
-                returnErr(nodeCopy(node->lft, &f_copy));
-                _POW(&f_pow_cm1, NULL, f_copy, c_minus_1);
-                _NUM(&c, g_val, NULL);
-                _MUL(deriv, NULL, c, f_pow_cm1);
+                *deriv = _MUL(deriv_lft, _MUL(_NUM(g_val), _POW(_COPY(node->lft), _NUM(g_val - 1))));
                 return ERR_OK;
             }
             if (f_const && !g_const)
             {
-                // (c ^ g)' = lnc * c ^ g
+                // (c ^ g)' = g' * lnc * c ^ g
                 double f_val = 0;
                 evaluate(node->lft, 0, &f_val);
-                Node *g_copy = NULL, *c = NULL, *c_pow_g = NULL, *lnc = NULL;
-                returnErr(nodeCopy(node->rgt, &g_copy));
-                _NUM(&c, f_val, NULL);
-                _POW(&c_pow_g, NULL, c, g_copy);
-                _NUM(&lnc, log(f_val), NULL); // calculate lnc or create ln node ?
-                _MUL(deriv, NULL, lnc, c_pow_g);
+                *deriv = _MUL(deriv_rgt, _MUL(_NUM(log(f_val)), _POW(_NUM(f_val), _COPY(node->rgt))));
                 return ERR_OK;
             }
             // (f ^ g)' = (exp(g * ln(f)))' = f ^ g * (g' * lnf + g * f' / f)
-
-            Node *f_copy_1 = NULL, *lnf = NULL, *dg_mul_lnf = NULL, *g_copy_1 = NULL, 
-            *gdf = NULL, *f_copy_2 = NULL, *gdf_div_f = NULL;
-
-            returnErr(nodeCopy(node->lft, &f_copy_1));
-            _LN(&lnf, NULL, f_copy_1);
-            _MUL(&dg_mul_lnf, NULL, deriv_rgt, lnf);
-            returnErr(nodeCopy(node->rgt, &g_copy_1));
-            _MUL(&gdf, NULL, g_copy_1, deriv_lft);
-            returnErr(nodeCopy(node->lft, &f_copy_2));
-            _DIV(&gdf_div_f, NULL, gdf, f_copy_2);
-
-            Node *crocodile = NULL, *f_copy_3 = NULL, *g_copy_2 = NULL, *f_pow_g = NULL;
-
-            _ADD(&crocodile, NULL, dg_mul_lnf, gdf_div_f);
-            returnErr(nodeCopy(node->lft, &f_copy_3));
-            returnErr(nodeCopy(node->rgt, &g_copy_2));
-            _POW(&f_pow_g, NULL, f_copy_3, g_copy_2);
-            _MUL(deriv, NULL, f_pow_g, crocodile);
-
+            *deriv = _MUL(_POW(_COPY(node->lft), _COPY(node->rgt)), 
+            _ADD(_MUL(deriv_rgt, _LN(_COPY(node->lft))), _DIV(_MUL(_COPY(node->rgt), deriv_lft), _COPY(node->lft))));
             return ERR_OK;
         }
         case OP_EXP:
         {
-            Node *exp_f = NULL;
-            returnErr(nodeCopy(node, &exp_f));
-            _MUL(deriv, NULL, deriv_lft, exp_f);
+            *deriv = _MUL(deriv_lft, _COPY(node));
             return ERR_OK;
         }
         case OP_LN:
         {
-            Node *f_copy = NULL;
-            returnErr(nodeCopy(node->lft, &f_copy));
-            _DIV(deriv, NULL, deriv_lft, f_copy);
+            *deriv = _DIV(deriv_lft, _COPY(node->lft));
             return ERR_OK;
         }
         case OP_SIN:
         {
-            Node *f_copy = NULL, *cos_f = NULL;
-            returnErr(nodeCopy(node->lft, &f_copy));
-            _COS(&cos_f, NULL, f_copy);
-            _MUL(deriv, NULL, cos_f, deriv_lft);
+            *deriv = _MUL(deriv_lft, _COS(_COPY(node->lft)));
             return ERR_OK;
         }
         case OP_COS:
         {
-            // unary minus / *(-1)
-            Node *f_copy = NULL, *sin_f = NULL;
-            returnErr(nodeCopy(node->lft, &f_copy));
-            _SIN(&sin_f, NULL, f_copy);
-            _MUL(deriv, NULL, sin_f, deriv_lft);
+            *deriv = _MUL(_NUM(-1), _MUL(deriv_lft, _SIN(_COPY(node->lft))));
             return ERR_OK;
         }
         case OP_TAN:
-        {
+        {  
             Node *f_copy = NULL, *cosf = NULL, *num2 = NULL, *cosf_squared = NULL;
-            _COPY(node->lft, &f_copy);
-            _COS(&cosf, NULL, f_copy);
-            _NUM(&num2, 2, NULL);
-            _POW(&cosf_squared, NULL, cosf, num2);
-            _DIV(deriv, NULL, deriv_lft, cosf_squared);
+            *deriv = _DIV(deriv_lft, _POW(_COS(_COPY(node->lft)), _NUM(2)));
             return ERR_OK;
         }
         case OP_ARCSIN:
         {
-            // add OP_SQRT ?
-
-            Node *f_copy = NULL, *num2 = NULL, *f_sqared = NULL, *num1 = NULL, 
-            *one_minus_f_sq = NULL, *num_0p5 = NULL, *sqrt_crocodile = NULL;
-
-            _COPY(node->lft, &f_copy);
-            _NUM(&num2, 2, NULL);
-            _POW(&f_sqared, NULL, f_copy, num2);
-            _NUM(&num1, 1, NULL);
-            _SUB(&one_minus_f_sq, NULL, num1, f_sqared);
-            _NUM(&num_0p5, 0.5, NULL);
-            _POW(&sqrt_crocodile, NULL, one_minus_f_sq, num_0p5);
-            _DIV(deriv, NULL, deriv_lft, sqrt_crocodile);
+            *deriv = _DIV(deriv_lft, _POW(_SUB(_NUM(1), _POW(_COPY(node->lft), _NUM(2))), _NUM(0.5)));
             return ERR_OK;
         }
         case OP_ARCCOS:
         {
-            // avoid copypasting from arcsin
-            // unary - or *(-1)
-
-            Node *f_copy = NULL, *num2 = NULL, *f_sqared = NULL, *num1 = NULL, 
-            *one_minus_f_sq = NULL, *num_0p5 = NULL, *sqrt_crocodile = NULL;
-
-            _COPY(node->lft, &f_copy);
-            _NUM(&num2, 2, NULL);
-            _POW(&f_sqared, NULL, f_copy, num2);
-            _NUM(&num1, 1, NULL);
-            _SUB(&one_minus_f_sq, NULL, num1, f_sqared);
-            _NUM(&num_0p5, 0.5, NULL);
-            _POW(&sqrt_crocodile, NULL, one_minus_f_sq, num_0p5);
-            _DIV(deriv, NULL, deriv_lft, sqrt_crocodile);
-            return ERR_OK;
+            *deriv = _MUL(_NUM(-1), _DIV(deriv_lft, _POW(_SUB(_NUM(1), _POW(_COPY(node->lft), _NUM(2))), _NUM(0.5))));
             return ERR_OK;
         }
         case OP_ARCTAN:
         {
-            Node *f_copy = NULL, *num2 = NULL, *f_squared = NULL, *num1 = NULL, *one_plus_f2 = NULL;
-            _COPY(node->lft, &f_copy);
-            _NUM(&num2, 2, NULL);
-            _POW(&f_squared, NULL, f_copy, num2);
-            _NUM(&num1, 1, NULL);
-            _ADD(&one_plus_f2, NULL, num1, f_squared);
-            _DIV(deriv, NULL, deriv_lft, one_plus_f2);
+            *deriv = _DIV(deriv_lft, _ADD(_NUM(1), _POW(_COPY(node->lft), _NUM(2))));
             return ERR_OK;
         }
         default: return ERR_INVAL_OP_CODE;
     }
 }
 
-int simplifyCase(Node* node, double crit_val, int result, int crit_in_rgt)
+int simplifyCase(Node* node, NodeChild crit_child, double crit_val, int replace_with_num, int replacement)
 {
     myAssert(node != NULL);
 
     Node *crit_node = NULL, *expr_node = NULL;
-    if (crit_in_rgt)
-    {
-        crit_node = node->rgt;
-        expr_node = node->lft;
-    }
-    else
+    if (crit_child == LFT_NODE)
     {
         crit_node = node->lft;
         expr_node = node->rgt;
     }
+    else if (crit_child == RGT_NODE)
+    {
+        crit_node = node->rgt;
+        expr_node = node->lft;
+    }
+    else myAssert(0);
+
     if (crit_node->type == TYPE_NUM && isZero(crit_node->val.num - crit_val))
     {
-        if (result != -1) // enum ?
+        if (replace_with_num)
         {
             node->type = TYPE_NUM;
-            node->val.num = result;
+            node->val.num = replacement;
             nodeDtor(node->lft);
             nodeDtor(node->rgt);
             node->lft = NULL;
             node->rgt = NULL;
             return 1;
         }
-        node->type = expr_node->type; // copyNode() ?
+        if (!isZero(replacement - 1))
+        {
+            node->val.op_code = OP_MUL;
+            crit_node->val.num = replacement;
+            return 1;
+        }
+        node->type = expr_node->type;
         node->val = expr_node->val;
         node->lft = expr_node->lft;
         node->rgt = expr_node->rgt;
@@ -480,58 +340,6 @@ int simplifyCase(Node* node, double crit_val, int result, int crit_in_rgt)
 
 void simplify(Node* node)
 {
-    // #define simplifyCase(crit_val, result, crit_in_right) \
-    // if (crit_in_right) \
-    // { \
-    //     printf("%d %lf %lf %lf\n", isZero(node->rgt->val.num - crit_val), node->rgt->val.num, crit_val, node->rgt->val.num - crit_val); \
-    //     if (node->rgt->type == TYPE_NUM && isZero(node->rgt->val.num - crit_val)) \
-    //     { \
-    //         printf("www\n"); \
-    //         if (result == 0) \
-    //         { \
-    //             printf("eee\n"); \
-    //             node->type = TYPE_NUM; \
-    //             node->val.num = 0; \
-    //             nodeDtor(node->lft); \
-    //             nodeDtor(node->rgt); \
-    //             node->lft = NULL; \
-    //             node->rgt = NULL; \
-    //             return; \
-    //         } \
-    //         node->lft = node->lft->lft;
-    //         node->rgt = node->lft->rgt;
-    //         node->
-    //         printf("rrr\n"); \
-    //         node->lft->parent = node->parent; \
-    //         node->lft = NULL; \
-    //         nodeDtor(node); \
-    //         printf("ttt\n"); \
-    //         return; \
-    //     } \
-    // } \
-    // if (node->lft->type == TYPE_NUM && isZero(node->lft->val.num - crit_val)) \
-    // { \
-    //     if (result == 0) \
-    //     { \
-    //         node->type = TYPE_NUM; \
-    //         node->val.num = 0; \
-    //         nodeDtor(node->lft); \
-    //         nodeDtor(node->rgt); \
-    //         node->lft = NULL; \
-    //         node->rgt = NULL; \
-    //         return; \
-    //     } \
-    //     if (node->parent != NULL) \
-    //     { \
-    //         if (node == node->parent->lft) node->parent->lft = node->rgt;  \
-    //         else node->parent->rgt = node->rgt; \
-    //     } \
-    //     node->rgt->parent = node->parent; \
-    //     node->rgt = NULL; \
-    //     nodeDtor(node); \
-    //     return; \
-    // }
-
     myAssert(node != NULL);
 
     if (node->type != TYPE_OP) return;
@@ -551,23 +359,30 @@ void simplify(Node* node)
 
     if (node->val.op_code == OP_ADD)
     {
-        if (simplifyCase(node, 0, -1, 0)) return; // macro for "if (...) return;" ?
-        if (simplifyCase(node, 0, -1, 1)) return;
+        if (simplifyCase(node, LFT_NODE, 0, 0, 1)) return;
+        if (simplifyCase(node, RGT_NODE, 0, 0, 1)) return;
     }
-    if (node->val.op_code == OP_SUB) if (simplifyCase(node, 0, -1, 1)) return; // 0 - f ?
-    if (node->val.op_code == OP_MUL)
+    else if (node->val.op_code == OP_SUB)
     {
-        if (simplifyCase(node, 0, 0,  0)) return;
-        if (simplifyCase(node, 0, 0,  1)) return;
-        if (simplifyCase(node, 1, -1, 0)) return;
-        if (simplifyCase(node, 1, -1, 1)) return;
+        if (simplifyCase(node, LFT_NODE, 0, 0, -1)) return;
+        if (simplifyCase(node, RGT_NODE, 0, 0, 1)) return;
     }
-    if (node->val.op_code == OP_DIV) if (simplifyCase(node, 1, -1, 1)) return;
-    if (node->val.op_code == OP_POW)
+    else if (node->val.op_code == OP_MUL)
     {
-        if (simplifyCase(node, 0, 1,  1)) return;
-        if (simplifyCase(node, 1, -1,  1)) return;
-        if (simplifyCase(node, 0, 0,  0)) return;
-        if (simplifyCase(node, 1, 1,  0)) return;
+        if (simplifyCase(node, LFT_NODE, 0, 1, 0)) return;
+        if (simplifyCase(node, RGT_NODE, 0, 1, 0)) return;
+        if (simplifyCase(node, LFT_NODE, 1, 0, 1)) return;
+        if (simplifyCase(node, RGT_NODE, 1, 0, 1)) return;
+    }
+    else if (node->val.op_code == OP_DIV)
+    {
+        if (simplifyCase(node, RGT_NODE, 1, 0, 1)) return;
+    }
+    else if (node->val.op_code == OP_POW)
+    {
+        if (simplifyCase(node, RGT_NODE, 0, 1, 1)) return;
+        if (simplifyCase(node, RGT_NODE, 1, 0, 1)) return;
+        if (simplifyCase(node, LFT_NODE, 0, 1, 0)) return;
+        if (simplifyCase(node, LFT_NODE, 1, 1, 1)) return;
     }
 }

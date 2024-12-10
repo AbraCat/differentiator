@@ -30,7 +30,7 @@ O_FILES:= $(patsubst %.cpp,o/%.o,$(notdir $(wildcard src/*.cpp)))
 
 DED_FLAGS := -Wshadow -Winit-self -Wredundant-decls -Wcast-align -Wundef -Wfloat-equal -Winline -Wunreachable-code -Wmissing-declarations -Wmissing-include-dirs -Wswitch-enum -Wswitch-default -Wmain -Wextra -Wall -g -pipe -fexceptions -Wcast-qual -Wconversion -Wempty-body -Wformat-security -Wformat=2 -Wignored-qualifiers -Wlogical-op -Wno-missing-field-initializers -Wpointer-arith -Wstack-usage=8192 -Wstrict-aliasing -Wtype-limits -Wwrite-strings -Werror=vla -D_DEBUG -D_EJUDGE_CLIENT_SIDE
 
-CFLAGS:= -I ./h $(DED_FLAGS) -Wno-unused-parameter -Wno-unused-function
+CFLAGS:= -I ./h -Wno-unused-parameter -Wno-unused-function # $(DED_FLAGS)
 
 exe/main.exe: $(O_FILES)
 	@$(CC) $(O_FILES) -o exe/main.exe
